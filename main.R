@@ -2,39 +2,45 @@
 require("DEoptim")
 require("ggplot2")
 
-fit_exp2_fixed_decision_parm <- function(par, regularize=T) {
-  # par = [x_h, l_h, m_h,  x_f, l_f, m_f,  x_n, l_n, m_n,  tao]
-  sse = 0
-  conds = unique(exp2hum$condition)
-  parm = matrix(par[1:9], nrow=3, byrow=T)
-  tao = par[10]
-  for(i in 1:length(conds)) {
-    cond = conds[i]
-    hum = subset(exp2hum, condition==cond)
-    mod = get_model_prediction_exp2(c(parm[i,], tao), cond)
-    sse = sse + sum((mod$perf - hum$perf)^2)
-  }
-  # regularize? punish for widely-varying parameters
-  if(regularize) sse = sse + .004*(var(parm[,1]) + var(parm[,2]) + var(parm[,3]))
-  return(sse)
-}
-
-fit_exp1_fixed_decision_parm <- function(par, regularize=T) {
-  # par = [x_h, l_h, m_h,  x_f, l_f, m_f,  x_n, l_n, m_n,  tao]
+# just let the fam vs. uncertainty and decay parameters vary
+fit_exp1_fixed_learn_decision_parm <- function(par, regularize=T) {
+  # par = [l_h, m_h,   l_f, m_f,   l_n, m_n,  x, tao]
   sse = 0
   conds = unique(exp1hum$overlap)
-  parm = matrix(par[1:9], nrow=3, byrow=T)
-  tao = par[10]
+  parm = matrix(par[1:6], nrow=3, byrow=T)
+  chi = par[7]
+  tao = par[8]
   for(i in 1:length(conds)) {
     cond = conds[i]
     hum = subset(exp1hum, overlap==cond)
-    mod = get_model_prediction_exp1(c(parm[i,], tao), cond)
+    mod = get_model_prediction_exp1(c(chi, parm[i,], tao), cond)
     sse = sse + sum((mod$perf - hum$perf)^2)
   }
   # regularize? punish for widely-varying parameters
-  if(regularize) sse = sse + .004*(var(parm[,1]) + var(parm[,2]) + var(parm[,3]))
+  if(regularize) sse = sse + .004*(var(parm[,1]) + var(parm[,2]))
   return(sse)
 }
+
+
+fit_exp2_fixed_learn_decision_parm <- function(par, regularize=T) {
+  # par = [l_h, m_h, l_f, m_f, l_n, m_n,  chi, tao]
+  sse = 0
+  conds = unique(exp2hum$condition)
+  parm = matrix(par[1:6], nrow=3, byrow=T)
+  chi = par[7]
+  tao = par[8]
+  for(i in 1:length(conds)) {
+    cond = conds[i]
+    hum = subset(exp2hum, condition==cond)
+    mod = get_model_prediction_exp2(c(chi, parm[i,], tao), cond)
+    sse = sse + sum((mod$perf - hum$perf)^2)
+  }
+  # regularize? punish for widely-varying parameters
+  if(regularize) 
+    sse = sse + .004*(var(parm[,1]) + var(parm[,2]))
+  return(sse)
+}
+
 
 get_exp1_human_perf <- function() {
   overlap = c("Low","Low","Low", "Medium","Medium","Medium", "High","High","High")
@@ -124,35 +130,6 @@ get_model_prediction_exp1 <- function(par, cond='all') {
 }
 
 
-hier_fit_kachergis_model_exp1 <- function(modelname, lower, upper) {
-  source(paste(modelname,".R",sep=''))
-  bestSSE = 100
-  best = NA
-  seeds = c(1234, 5678, 928798, 1532, 29873, 983701, 10983, 447278916, 18783, 1984)
-  for(s in seeds) {
-    set.seed(s)
-    tmp = DEoptim(fn=fit_exp1_fixed_decision_parm, lower=lower, upper=upper, 
-                  DEoptim.control(reltol=.0001, steptol=90, itermax=300, trace=20)) # , trace=10
-    print(paste("SSE:",tmp$optim$bestval,"parms:"))
-    if(tmp$optim$bestval<bestSSE) {
-      bestSSE = tmp$optim$bestval
-      best = tmp
-    }
-  }
-  bestp = best$optim$bestmem
-  print(bestp)
-  tao = bestp[10]
-  exp1mod_lo = get_model_prediction_exp1(c(bestp[1:3],tao))
-  exp1mod_med = get_model_prediction_exp1(c(bestp[4:6],tao))
-  exp1mod_hi = get_model_prediction_exp1(c(bestp[7:9],tao))
-  
-  exp1mod = rbind(subset(exp1mod_lo, overlap=="Low"), 
-                  subset(exp1mod_med, overlap=="Medium"), 
-                  subset(exp1mod_hi, overlap=="High"))
-  plot_miniXSL(exp1mod, exp1hum, paste("miniXSL_Exp1_",modelname,"_hier_fit.pdf",sep=''), best$optim$bestval)
-  return(best$optim)
-}
-
 
 plot_miniXSL <- function(modeldat, humandat, fname, sse) {
   modeldat$Model = modeldat$perf
@@ -209,14 +186,45 @@ get_model_prediction_exp2 <- function(par, cond='all') {
 }
 
 
-hier_fit_kachergis_model_exp2 <- function(modelname, lower, upper) {
+hier_fit_2fixed_kachergis_model_exp1 <- function(modelname, lower, upper) {
   source(paste(modelname,".R",sep=''))
   bestSSE = 100
   best = NA
   seeds = c(1234, 5678, 928798, 1532, 29873, 983701, 10983, 447278916, 18783, 1984)
   for(s in seeds) {
     set.seed(s)
-    tmp = DEoptim(fn=fit_exp2_fixed_decision_parm, lower=lower, upper=upper, 
+    tmp = DEoptim(fn=fit_exp1_fixed_learn_decision_parm, lower=lower, upper=upper, 
+                  DEoptim.control(reltol=.0001, steptol=90, itermax=300, trace=20)) 
+    print(paste("SSE:",tmp$optim$bestval,"parms:"))
+    if(tmp$optim$bestval<bestSSE) {
+      bestSSE = tmp$optim$bestval
+      best = tmp
+    }
+  }
+  bestp = best$optim$bestmem
+  print(bestp)
+  chi = bestp[7]
+  tao = bestp[8]
+  exp1mod_lo = get_model_prediction_exp1(c(chi,bestp[1:2],tao))
+  exp1mod_med = get_model_prediction_exp1(c(chi,bestp[3:4],tao))
+  exp1mod_hi = get_model_prediction_exp1(c(chi,bestp[5:6],tao))
+  
+  exp1mod = rbind(subset(exp1mod_lo, overlap=="Low"), 
+                  subset(exp1mod_med, overlap=="Medium"), 
+                  subset(exp1mod_hi, overlap=="High"))
+  plot_miniXSL(exp1mod, exp1hum, paste("miniXSL_Exp1_",modelname,"_hier_2fixed_fit.pdf",sep=''), best$optim$bestval)
+  return(best$optim)
+}
+
+
+hier_fit_2fixed_kachergis_model_exp2 <- function(modelname, lower, upper) {
+  source(paste(modelname,".R",sep=''))
+  bestSSE = 100
+  best = NA
+  seeds = c(1234, 5678, 928798, 1532, 29873, 983701, 10983, 447278916, 18783, 1984)
+  for(s in seeds) {
+    set.seed(s)
+    tmp = DEoptim(fn=fit_exp2_fixed_learn_decision_parm, lower=lower, upper=upper, 
                   DEoptim.control(reltol=.0001, steptol=90, itermax=300, trace=20)) # , trace=10
     print(paste("SSE:",tmp$optim$bestval,"parms:"))
     if(tmp$optim$bestval<bestSSE) {
@@ -227,27 +235,33 @@ hier_fit_kachergis_model_exp2 <- function(modelname, lower, upper) {
   
   bestp = best$optim$bestmem
   print(bestp)
-  tao = bestp[10]
-  exp2mod_fam = get_model_prediction_exp2(c(bestp[4:6],tao))
-  exp2mod_nov = get_model_prediction_exp2(c(bestp[7:9],tao))
-  exp2mod_hi = get_model_prediction_exp2(c(bestp[1:3],tao))
+  chi = bestp[7]
+  tao = bestp[8]
+  exp2mod_fam = get_model_prediction_exp2(c(chi,bestp[3:4],tao))
+  exp2mod_nov = get_model_prediction_exp2(c(chi,bestp[5:6],tao))
+  exp2mod_hi = get_model_prediction_exp2(c(chi,bestp[1:2],tao))
   
   exp2mod = rbind(subset(exp2mod_fam, condition=="Familiar Context"), 
-                  subset(exp2mod_nov, condition=="Novel Context"), 
-                  subset(exp2mod_hi, condition=="High Overlap"))
-  plot_miniXSL_Exp2(exp2mod, exp2hum, paste("miniXSL_Exp2_",modelname,"_hier_fit.pdf",sep=''), best$optim$bestval)
+                  subset(exp2mod_hi, condition=="High Overlap"),
+                  subset(exp2mod_nov, condition=="Novel Context"))
+  plot_miniXSL_Exp2(exp2mod, exp2hum, paste("miniXSL_Exp2_",modelname,"_hier_2fixed_fit.pdf",sep=''), best$optim$bestval)
   
   return(best$optim)
 }
 
-source("kachergis_exp.R")
-hier_fit_kachergis_model_exp1("kachergis_exp", lower=c(rep(c(.00001,.01,.7),3), .05), upper=c(rep(c(10,20,1),3), 1000))
-# SSE = .026 with regularization penalty
-fit_exp1_fixed_decision_parm(c(7.2938921, 1.9412466, 0.9817797, 6.5750992, 3.6799870, 0.9983167, 5.5582717, 4.6954824, 0.7003448, 0.5220702), regularize=F )
-# SSE=.015 without penalty (actual fit)
 
-hier_fit_kachergis_model_exp2("kachergis_exp", lower=c(rep(c(.00001,.01,.7),3), .05), upper=c(rep(c(10,20,1),3), 1000))
-# SSE= 0.1537654 (with regularization penalty)
-fit_exp2_fixed_decision_parm(c(9.9986559, 6.7550583, 0.9807556, 9.7954385, 5.9043599, 0.70, 10.0, 1.75, 0.84, 0.89), regularize=F) # tao is last
-# SSE = .125 without reg penalty
+source("kachergis_exp.R")
+
+# 2 fixed parameters (learning rate and decision parm)
+hier_fit_2fixed_kachergis_model_exp1("kachergis_exp", lower=c(rep(c(.01,.5),3), .00001, .05), upper=c(rep(c(20,1),3), 15, 1000))
+#  SSE=0.025 with regularization, .021 without 
+fit_exp1_fixed_learn_decision_parm(c(2.418412, 1.0, 
+                                     4.142746, 1.0, 
+                                     4.327943, 0.50,  15.00, 1.268072), regularize=F) 
+
+hier_fit_2fixed_kachergis_model_exp2("kachergis_exp", lower=c(rep(c(.01,.5),3), .001, .05), upper=c(rep(c(12,1),3), 15, 1000))
+# SSE=.119 with regularization, .093 without
+fit_exp2_fixed_learn_decision_parm(c(6.627942, 1.0, 
+                                     6.011371, 0.50, 
+                                     1.951481, 0.8057, 15.00,  1.272883), regularize=F) 
 
